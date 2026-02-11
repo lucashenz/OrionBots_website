@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bot 15m Híbrido CLOB + Gamma | OrionBots</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="background-glow"></div>
+
+    <header class="hero">
+      <nav class="nav">
+        <div class="logo">OrionBots</div>
+        <div class="nav-actions">
+          <a class="nav-link" href="#arquitetura">Arquitetura</a>
+          <a class="nav-link" href="#validacao">Validação</a>
+          <a class="button small" href="#lead">Implementar agora</a>
+        </div>
+      </nav>
+
+      <div class="hero-content">
+        <div class="hero-text">
+          <p class="eyebrow">Execução determinística para ciclos de 15 minutos</p>
+          <h1>
+            Bot híbrido com
+            <span>CLOB API + Gamma API</span>
+          </h1>
+          <p class="subtitle">
+            Vamos implementar o bot sobre a interface atual com cálculo local de janelas,
+            normalização de unidades, hierarquia de fontes e idempotência de execução.
+          </p>
+          <p class="subtitle strategy-note">
+            Sim: a estratégia foi aplicada ao bot — janela canônica de 15m, consulta
+            híbrida CLOB + Gamma, retries/backoff e bloqueio por janela para execução
+            segura.
+          </p>
+          <div class="hero-cta">
+            <a class="button" href="#arquitetura">Ver plano técnico</a>
+            <a class="button ghost" href="#lead">Quero implementação</a>
+          </div>
+          <div class="trust">
+            <div>
+              <strong>window_ts canônico</strong>
+              <span>sempre calculado no cliente em UTC</span>
+            </div>
+            <div>
+              <strong>Fontes híbridas</strong>
+              <span>RTDS → Gamma → scraper/REST → spot</span>
+            </div>
+            <div>
+              <strong>Operação segura</strong>
+              <span>retries, locks e persistência append-only</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-card">
+          <div class="card">
+            <span class="card-title">Regra central</span>
+            <p>
+              Nunca depender de endpoint para “próxima janela”. O próximo ciclo é sempre
+              determinístico a partir do timestamp atual.
+            </p>
+            <ul>
+              <li>current = floor(now / 900) × 900</li>
+              <li>next = current + 900</li>
+              <li>slug: asset-updown-15m-window_ts</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section id="arquitetura" class="section">
+      <div class="section-title">
+        <h2>Arquitetura de execução recomendada</h2>
+        <p>
+          Implementação guiada por timestamp, com CLOB e Gamma em modelo híbrido e
+          fallback controlado para reduzir incerteza operacional.
+        </p>
+      </div>
+
+      <div class="cards">
+        <article class="solution">
+          <h3>1. Canonical time</h3>
+          <p>
+            Padronizar <code>window_ts</code> em epoch seconds no sistema inteiro e
+            converter mensagens RTDS de ms para s ao chegar.
+          </p>
+        </article>
+        <article class="solution">
+          <h3>2. Consulta Gamma</h3>
+          <p>
+            Construir slug determinístico com <code>next_window</code> e consultar
+            <code>/events?slug=...</code> com retentativa e backoff exponencial curto.
+          </p>
+        </article>
+        <article class="solution">
+          <h3>3. Execução CLOB</h3>
+          <p>
+            Executar ordens com lock por <code>window_ts</code>, confirmação de ordem e
+            persistência idempotente da ação.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section highlight">
+      <div class="highlight-content">
+        <h2>Hierarquia de fontes no tempo</h2>
+        <ul>
+          <li>T+0..15s: RTDS para lock inicial de PTB.</li>
+          <li>T+20s: validação local por mediana e tolerância.</li>
+          <li>T+3min: Gamma como autoridade final de outcome.</li>
+          <li>Fallback: scraper/REST e spot apenas para estimativa.</li>
+        </ul>
+      </div>
+      <div class="highlight-metric">
+        <span>Política de risco</span>
+        <strong>Sem evento confirmado, não opera</strong>
+        <p>Preferência por segurança: evitar execução em janela ambígua.</p>
+      </div>
+    </section>
+
+    <section id="validacao" class="section">
+      <div class="section-title">
+        <h2>Checklist de validação e depuração</h2>
+        <p>
+          O bot deve nascer com observabilidade nativa para evitar duplicidade,
+          inconsistência de unidade e erros de publicação tardia.
+        </p>
+      </div>
+
+      <div class="cards">
+        <article class="solution">
+          <h3>Time sanity</h3>
+          <p>
+            Testar fronteiras como 14:59:58 para validar <code>current_window</code> e
+            <code>next_window</code> em UTC.
+          </p>
+        </article>
+        <article class="solution">
+          <h3>Gamma ausente</h3>
+          <p>
+            Simular 404/empty, validar retries (2s, 4s, 8s...) e marcar janela como
+            evento ausente quando necessário.
+          </p>
+        </article>
+        <article class="solution">
+          <h3>Recovery + idempotência</h3>
+          <p>
+            Reiniciar serviço e garantir que janelas tratadas não sejam reprocessadas,
+            usando log append-only + lock por janela.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section strategy-box">
+      <div class="section-title">
+        <h2>Estratégia aplicada ao bot (como regra de execução)</h2>
+        <p>
+          A estratégia solicitada está definida como política operacional: calcular
+          <code>window_ts</code> no cliente, montar slug determinístico, consultar Gamma
+          com retentativas, e executar no CLOB apenas com evento confirmado.
+        </p>
+      </div>
+      <div class="cards">
+        <article class="solution">
+          <h3>Determinístico por timestamp</h3>
+          <p>
+            <code>current = floor(now/900)*900</code> e
+            <code>next = current + 900</code> como base para todas as decisões.
+          </p>
+        </article>
+        <article class="solution">
+          <h3>Confirmação por autoridade</h3>
+          <p>
+            Gamma como referência final de evento/outcome; sem confirmação, o bot não
+            abre posição naquela janela.
+          </p>
+        </article>
+        <article class="solution">
+          <h3>Idempotência e segurança</h3>
+          <p>
+            Lock por janela, log append-only e recovery de startup para impedir
+            duplicidade de ordens.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section id="lead" class="section lead">
+      <div class="lead-text">
+        <h2>Vamos implementar esse bot na sua operação?</h2>
+        <p>
+          Construímos a solução usando CLOB API e Gamma API de forma híbrida, com
+          validações, backtests e entrega pronta para rodar.
+        </p>
+        <div class="lead-points">
+          <span>✅ Arquitetura determinística de 15m</span>
+          <span>✅ Integração CLOB + Gamma</span>
+          <span>✅ Logs, retries e observabilidade</span>
+        </div>
+      </div>
+      <form class="lead-form">
+        <label>
+          Nome
+          <input type="text" name="nome" placeholder="Seu nome" required />
+        </label>
+        <label>
+          E-mail
+          <input type="email" name="email" placeholder="seu@email.com" required />
+        </label>
+        <label>
+          Mercado/estratégia
+          <input type="text" name="mercado" placeholder="Ex: Up/Down 15m multi-asset" />
+        </label>
+        <label>
+          Detalhes técnicos do projeto
+          <textarea
+            name="mensagem"
+            rows="4"
+            placeholder="Conte os assets, regras de entrada/saída e requisitos de execução"
+          ></textarea>
+        </label>
+        <button class="button" type="submit">Quero esse bot implementado</button>
+        <p class="form-note">Retorno com plano técnico inicial em até 1 dia útil.</p>
+      </form>
+    </section>
+
+    <footer class="footer">
+      <div>
+        <strong>OrionBots</strong>
+        <span>Software house para bots de mercado financeiro.</span>
+      </div>
+      <div>
+        <span>contato@orionbots.com</span>
+        <span>São Paulo • Brasil</span>
+      </div>
+    </footer>
+  </body>
+</html>
